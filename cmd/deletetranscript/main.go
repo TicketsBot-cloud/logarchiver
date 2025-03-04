@@ -4,12 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/TicketsBot/logarchiver/pkg/config"
 	"github.com/TicketsBot/logarchiver/pkg/s3client"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"strconv"
-	"strings"
 )
 
 var (
@@ -28,7 +29,7 @@ func main() {
 
 	m, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: true,
+		Secure: cfg.Secure,
 	})
 
 	if err != nil {

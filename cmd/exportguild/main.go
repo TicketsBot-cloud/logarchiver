@@ -6,19 +6,20 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/TicketsBot/common/encryption"
 	"github.com/TicketsBot/logarchiver/pkg/config"
 	"github.com/TicketsBot/logarchiver/pkg/model"
-	"github.com/TicketsBot/logarchiver/pkg/model/v1"
+	v1 "github.com/TicketsBot/logarchiver/pkg/model/v1"
 	v22 "github.com/TicketsBot/logarchiver/pkg/model/v2"
 	"github.com/TicketsBot/logarchiver/pkg/s3client"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/rxdn/gdl/objects/channel/message"
 	"golang.org/x/sync/errgroup"
-	"os"
-	"strconv"
-	"strings"
 )
 
 const workers = 15
@@ -39,7 +40,7 @@ func main() {
 	// create minio client
 	m, err := minio.New(conf.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(conf.AccessKey, conf.SecretKey, ""),
-		Secure: true,
+		Secure: conf.Secure,
 	})
 	if err != nil {
 		panic(err)
