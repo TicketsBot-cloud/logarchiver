@@ -22,7 +22,7 @@ func main() {
 	// create minio client
 	client, err := minio.New(conf.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(conf.AccessKey, conf.SecretKey, ""),
-		Secure: true,
+		Secure: conf.Secure,
 	})
 	if err != nil {
 		panic(err)

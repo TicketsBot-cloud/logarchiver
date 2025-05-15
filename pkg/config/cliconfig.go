@@ -5,4 +5,5 @@ type CliConfig struct {
 	SecretKey string `env:"S3_SECRET,required"`
 	Endpoint  string `env:"S3_ENDPOINT,required"`
 	Bucket    string `env:"S3_BUCKET,required"`
+	Secure    bool   `env:"S3_SECURE" envDefault:"true"`
 }

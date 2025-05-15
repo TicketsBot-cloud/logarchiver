@@ -129,7 +129,7 @@ func getTranscripts(conf config.Config, tickets map[uint64][]int) {
 	// create minio client
 	m, err := minio.New(conf.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(conf.AccessKey, conf.SecretKey, ""),
-		Secure: true,
+		Secure: conf.Secure,
 	})
 	if err != nil {
 		panic(err)

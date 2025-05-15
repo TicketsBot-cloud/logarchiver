@@ -62,7 +62,7 @@ func (s *ShardedClientManager) Load(ctx context.Context) error {
 
 		m, err := minio.New(host, &minio.Options{
 			Creds:  credentials.NewStaticV4(s.config.AccessKey, s.config.SecretKey, ""),
-			Secure: true,
+			Secure: s.config.Secure,
 		})
 
 		if err != nil {

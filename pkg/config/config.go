@@ -11,6 +11,7 @@ type Config struct {
 
 	AccessKey       string    `env:"S3_ACCESS"`
 	SecretKey       string    `env:"S3_SECRET"`
+	Secure          bool      `env:"S3_SECURE" envDefault:"true"`
 	DefaultBucketId uuid.UUID `env:"DEFAULT_BUCKET_ID"`
 
 	SentryDsn      string `env:"SENTRY_DSN"`
