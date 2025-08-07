@@ -37,14 +37,6 @@ func (c *S3Client) GetTicket(ctx context.Context, guildId uint64, ticketId int) 
 
 	defer object.Close()
 
-	if _, err := object.Stat(); err != nil {
-		if isNotFoundErr(err) {
-			return nil, ErrTicketNotFound
-		} else {
-			return nil, err
-		}
-	}
-
 	var buff bytes.Buffer
 	if _, err := buff.ReadFrom(object); err != nil {
 		return nil, err
