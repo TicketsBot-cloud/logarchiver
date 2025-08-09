@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/TicketsBot-cloud/logarchiver/pkg/repository/model"
+	"github.com/klauspost/compress/zstd"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -42,7 +44,22 @@ func (c *S3Client) GetTicket(ctx context.Context, guildId uint64, ticketId int) 
 		return nil, err
 	}
 
-	return buff.Bytes(), nil
+	data := buff.Bytes()
+
+	// Check for zstd magic number: 0x28B52FFD
+	if len(data) >= 4 && bytes.Equal(data[:4], []byte{0x28, 0xB5, 0x2F, 0xFD}) {
+		// decompress manually (rare case where server didn't decompress)
+		zstdReader, err := zstd.NewReader(bytes.NewReader(data))
+		if err != nil {
+			fmt.Println("Failed to create zstd reader:", err)
+			return nil, err
+		}
+		defer zstdReader.Close()
+
+		return io.ReadAll(zstdReader)
+	}
+
+	return data, nil
 }
 
 func (c *S3Client) StoreTicket(ctx context.Context, guildId uint64, ticketId int, data []byte) error {

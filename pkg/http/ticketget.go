@@ -44,6 +44,7 @@ func (s *Server) ticketGetHandler(ctx *gin.Context) {
 
 	data, err := client.GetTicket(ctx, guild, id)
 	if err != nil {
+		s.Logger.Error("Failed to get ticket data", zap.Error(err), zap.Uint64("guild", guild), zap.Int("id", id))
 		var statusCode int
 		if errors.Is(err, s3client.ErrTicketNotFound) {
 			statusCode = 404

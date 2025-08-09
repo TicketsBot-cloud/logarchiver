@@ -12,6 +12,8 @@ import (
 	"github.com/TicketsBot/common/observability"
 	"github.com/getsentry/sentry-go"
 	"go.uber.org/zap"
+
+	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {
