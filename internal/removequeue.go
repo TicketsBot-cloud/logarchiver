@@ -30,6 +30,7 @@ const (
 	StatusInProgress Status = "in_progress"
 	StatusComplete   Status = "complete"
 	StatusFailed     Status = "failed"
+	StatusTimeout    Status = "timeout"
 )
 
 var (
@@ -130,21 +131,25 @@ func (q *RemoveQueue) StartReaper() {
 
 		q.mu.Lock()
 		for guildId, operation := range q.queue {
-			if operation.LastUpdated.Before(time.Now().Add(-10 * time.Minute)) {
-				if operation.Status == StatusInProgress {
-					q.logger.Warn(
-						"Removing in-progress operation from queue due to lack of updates",
-						zap.Uint64("guild", guildId),
-						zap.String("status", string(operation.Status)),
-					)
-				} else {
-					q.logger.Debug(
-						"Removing completed operation from queue",
-						zap.Uint64("guild", guildId),
-						zap.String("status", string(operation.Status)),
-					)
-				}
+			timeSinceUpdate := time.Since(operation.LastUpdated)
 
+			if operation.Status == StatusInProgress && timeSinceUpdate >= 10*time.Minute {
+				// Operation stuck, mark as timeout instead of deleting
+				operation.Status = StatusTimeout
+				operation.LastUpdated = time.Now()
+				q.queue[guildId] = operation
+
+				q.logger.Warn(
+					"Operation timed out after inactivity",
+					zap.Uint64("guild", guildId),
+				)
+			} else if (operation.Status == StatusComplete || operation.Status == StatusFailed || operation.Status == StatusTimeout) && timeSinceUpdate >= 10*time.Minute {
+				// Clean up completed/failed/timeout statuses
+				q.logger.Debug(
+					"Removing completed operation from queue",
+					zap.Uint64("guild", guildId),
+					zap.String("status", string(operation.Status)),
+				)
 				delete(q.queue, guildId)
 			}
 		}

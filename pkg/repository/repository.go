@@ -29,4 +29,5 @@ type ObjectRepository interface {
 	CreateObject(ctx context.Context, object model.Object) error
 	ListByGuild(ctx context.Context, guildId uint64) ([]model.Object, error)
 	DeleteObject(ctx context.Context, guildId uint64, ticketId int) error
+	DeleteByGuild(ctx context.Context, guildId uint64) error
 }

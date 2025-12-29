@@ -27,6 +27,9 @@ var (
 
 	//go:embed sql/objects/delete.sql
 	queryDeleteObject string
+
+	//go:embed sql/objects/delete_by_guild.sql
+	queryDeleteByGuild string
 )
 
 func newPostgresObjectRepository(tx pgx.Tx) *PostgresObjectRepository {
@@ -79,6 +82,14 @@ func (p *PostgresObjectRepository) CreateObject(ctx context.Context, object mode
 
 func (p *PostgresObjectRepository) DeleteObject(ctx context.Context, guildId uint64, ticketId int) error {
 	if _, err := p.tx.Exec(ctx, queryDeleteObject, guildId, ticketId); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (p *PostgresObjectRepository) DeleteByGuild(ctx context.Context, guildId uint64) error {
+	if _, err := p.tx.Exec(ctx, queryDeleteByGuild, guildId); err != nil {
 		return err
 	}
 
