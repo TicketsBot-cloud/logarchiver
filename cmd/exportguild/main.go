@@ -9,14 +9,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
+	"github.com/TicketsBot-cloud/common/encryption"
 	"github.com/TicketsBot-cloud/gdl/objects/channel/message"
+	"github.com/TicketsBot-cloud/logarchiver/internal/util"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/config"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/model"
 	v1 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v1"
-	v22 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v2"
+	v2 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v2"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/s3client"
-	"github.com/TicketsBot/common/encryption"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"golang.org/x/sync/errgroup"
@@ -37,7 +39,15 @@ func main() {
 	flag.Parse()
 	conf := config.Parse[config.CliConfig]()
 
-	// create minio client
+	fmt.Printf("Exporting guild data for %d\n", *guildId)
+
+	exportDir := fmt.Sprintf("exports/guild/%d", *guildId)
+
+	if err := os.MkdirAll(exportDir, 0700); err != nil {
+		panic(fmt.Sprintf("failed to create export directory: %v", err))
+	}
+
+	fmt.Println("[1/3] Connecting to S3...")
 	m, err := minio.New(conf.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(conf.AccessKey, conf.SecretKey, ""),
 		Secure: conf.Secure,
@@ -48,23 +58,24 @@ func main() {
 
 	client := s3client.NewS3Client(m, conf.Bucket)
 
-	// likely to be file exists
-	_ = os.Mkdir(fmt.Sprintf("export/%d", *guildId), 0)
-
+	fmt.Println("[2/3] Exporting transcripts...")
 	if ticketId != nil && *ticketId > 0 {
-		export(*ticketId, client)
+		exportTicket(*ticketId, client, exportDir)
+		printProgress(1, 1, 0, 0)
 	} else {
 		keys, err := client.GetAllKeysForGuild(context.Background(), *guildId)
 		if err != nil {
 			panic(err)
 		}
 
+		total := int64(len(keys))
+		var processed, skipped, failed atomic.Int64
+
 		keyCh := make(chan string)
 		go func() {
 			for _, key := range keys {
 				keyCh <- key
 			}
-
 			close(keyCh)
 		}()
 
@@ -73,14 +84,34 @@ func main() {
 			group.Go(func() error {
 				for key := range keyCh {
 					id := key[strings.LastIndex(key, "/")+1:]
-					parsed, err := strconv.Atoi(id)
-					must(err)
-
-					if after != nil && *after > 0 && parsed < *after {
+					if id == "" {
+						skipped.Add(1)
+						processed.Add(1)
+						printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
 						continue
 					}
 
-					export(parsed, client)
+					parsed, err := strconv.Atoi(id)
+					if err != nil {
+						skipped.Add(1)
+						processed.Add(1)
+						printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
+						continue
+					}
+
+					if after != nil && *after > 0 && parsed < *after {
+						skipped.Add(1)
+						processed.Add(1)
+						printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
+						continue
+					}
+
+					if ok := exportTicket(parsed, client, exportDir); !ok {
+						failed.Add(1)
+					}
+
+					processed.Add(1)
+					printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
 				}
 
 				return nil
@@ -91,83 +122,110 @@ func main() {
 			panic(err)
 		}
 	}
+
+	fmt.Println("[3/3] Creating zip archive...")
+	zipPath := fmt.Sprintf("exports/guild/%d.zip", *guildId)
+	if err := util.ZipFiles(exportDir, zipPath); err != nil {
+		panic(fmt.Sprintf("could not zip files: %v", err))
+	}
+
+	os.RemoveAll(exportDir)
+	fmt.Printf("Done! Export saved to %s\n", zipPath)
 }
 
-func export(id int, client *s3client.S3Client) {
-	data, err := client.GetTicket(context.Background(), *guildId, id)
-	must(err)
+func printProgress(current, total, skipped, failed int) {
+	const barWidth = 40
+	filled := barWidth * current / total
+	bar := make([]byte, barWidth)
+	for i := range bar {
+		if i < filled {
+			bar[i] = '#'
+		} else {
+			bar[i] = '-'
+		}
+	}
+	fmt.Printf("\r[%s] %d/%d transcripts (skipped: %d, failed: %d)", bar, current, total, skipped, failed)
+	if current == total {
+		fmt.Println()
+	}
+}
 
-	data, err = encryption.Decompress(data)
-	must(err)
+// exportTicket exports a single ticket and returns true on success.
+func exportTicket(id int, client *s3client.S3Client, exportDir string) bool {
+	data, err := client.GetTicket(context.Background(), *guildId, id)
+	if err != nil {
+		return false
+	}
 
 	data, err = encryption.Decrypt([]byte(*key), data)
-	must(err)
+	if err != nil {
+		return false
+	}
 
 	if *convert || (userWhitelist != nil && *userWhitelist > 0) {
-		var transcript v22.Transcript
+		var transcript v2.Transcript
 
 		version := model.GetVersion(data)
 		switch version {
 		case model.V1:
 			var messages []message.Message
 			if err := json.Unmarshal(data, &messages); err != nil {
-				panic(err)
+				return false
 			}
 
 			transcript = v1.ConvertToV2(messages)
 		case model.V2:
 			if err := json.Unmarshal(data, &transcript); err != nil {
-				panic(err)
+				return false
 			}
 		default:
-			panic(fmt.Sprintf("Unknown version %d", version))
+			return false
+		}
+
+		if userWhitelist != nil && *userWhitelist > 0 {
+			transcript.Entities.Channels = nil
+			transcript.Entities.Roles = nil
+
+			user, ok := transcript.Entities.Users[*userWhitelist]
+			if !ok {
+				transcript.Entities.Users = nil
+			} else {
+				transcript.Entities.Users = map[uint64]v2.User{
+					user.Id: user,
+				}
+			}
+
+			var messages []v2.Message
+			for _, message := range transcript.Messages {
+				if message.AuthorId == *userWhitelist {
+					messages = append(messages, message)
+				}
+			}
+
+			transcript.Messages = messages
 		}
 
 		data, err = json.Marshal(transcript)
-		must(err)
-	}
-
-	if userWhitelist != nil && *userWhitelist > 0 {
-		var transcript v22.Transcript
-		if err := json.Unmarshal(data, &transcript); err != nil {
-			panic(err)
+		if err != nil {
+			return false
 		}
-
-		transcript.Entities.Channels = nil
-		transcript.Entities.Roles = nil
-
-		user, ok := transcript.Entities.Users[*userWhitelist]
-		if !ok {
-			transcript.Entities.Users = nil
-		} else {
-			transcript.Entities.Users = map[uint64]v22.User{
-				user.Id: user,
-			}
-		}
-
-		var messages []v22.Message
-		for _, message := range transcript.Messages {
-			if message.AuthorId == *userWhitelist {
-				messages = append(messages, message)
-			}
-		}
-
-		transcript.Messages = messages
-
-		data, err = json.Marshal(transcript)
-		must(err)
 	}
 
 	var encoded bytes.Buffer
-	must(json.Indent(&encoded, data, "", "  "))
+	if err := json.Indent(&encoded, data, "", "  "); err != nil {
+		return false
+	}
 
-	f, err := os.Create(fmt.Sprintf("export/%d/%d.json", *guildId, id))
-	must(err)
+	f, err := os.Create(fmt.Sprintf("%s/%d.json", exportDir, id))
+	if err != nil {
+		return false
+	}
 
-	_, err = encoded.WriteTo(f)
-	must(err)
+	if _, err := encoded.WriteTo(f); err != nil {
+		return false
+	}
 
-	fmt.Printf("exported %d\n", id)
+	return true
 }
 
 func must(err error) {

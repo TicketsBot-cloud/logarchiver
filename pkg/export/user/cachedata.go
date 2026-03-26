@@ -1,4 +1,4 @@
-package main
+package user
 
 import (
 	"context"
@@ -8,17 +8,17 @@ import (
 	"github.com/TicketsBot-cloud/gdl/cache"
 )
 
-func getCacheData(cache *cache.PgCache, userId uint64) map[string]interface{} {
+func GetCacheData(c *cache.PgCache, userId uint64) map[string]interface{} {
 	data := make(map[string]interface{})
 
-	user, ok := cache.GetUser(userId)
-	if ok {
+	user, err := c.GetUser(context.Background(), userId)
+	if err == nil {
 		data["user"] = user
 	} else {
 		data["user"] = nil
 	}
 
-	rows, err := cache.Query(context.Background(), `SELECT guild_id, data FROM members WHERE "user_id" = $1;`, userId)
+	rows, err := c.Query(context.Background(), `SELECT guild_id, data FROM members WHERE "user_id" = $1;`, userId)
 	must(err)
 
 	memberData := make(map[string]interface{})
