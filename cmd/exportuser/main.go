@@ -66,7 +66,9 @@ func main() {
 
 	fmt.Println("[3/5] Exporting database and cache data...")
 	{
-		userData := user.GetUserData(db, *userId)
+		userData, err := user.GetUserData(db, *userId)
+		must(err)
+
 		encoded, err := json.MarshalIndent(userData, "", "  ")
 		must(err)
 
@@ -75,7 +77,8 @@ func main() {
 	}
 
 	{
-		cacheData := user.GetCacheData(&c, *userId)
+		cacheData, err := user.GetCacheData(&c, *userId)
+		must(err)
 
 		encoded, err := json.MarshalIndent(cacheData, "", "  ")
 		must(err)

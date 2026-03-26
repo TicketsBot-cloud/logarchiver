@@ -8,28 +8,80 @@ import (
 	"github.com/TicketsBot-cloud/database"
 )
 
-// The worst code you have ever seen
-func GetUserData(db *database.Database, userId uint64) map[string]interface{} {
+func GetUserData(db *database.Database, userId uint64) (map[string]interface{}, error) {
 	ctx := context.Background()
 	data := make(map[string]interface{})
 
-	data["blacklisted_guilds"] = getBlacklistedGuilds(db, userId)
-	data["close_requests"] = getCloseRequests(db, userId)
-	data["response_times"] = getResponseTimes(db, userId)
-	data["participated_tickets"] = getParticipatedTickets(db, userId)
-	data["permissions"] = getPermissions(db, userId)
-	data["team_permissions"] = getTeamPermissions(db, userId)
-	data["claimed_tickets"] = getClaimedTickets(db, userId)
-	data["member_of_tickets"] = getTicketsMember(db, userId)
-	data["tickets"] = getTickets(db, userId)
-	data["premium_activated_for"] = getPremiumActivatedFor(db, userId)
+	blacklistedGuilds, err := getBlacklistedGuilds(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blacklisted guilds: %w", err)
+	}
+	data["blacklisted_guilds"] = blacklistedGuilds
+
+	closeRequests, err := getCloseRequests(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get close requests: %w", err)
+	}
+	data["close_requests"] = closeRequests
+
+	responseTimes, err := getResponseTimes(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get response times: %w", err)
+	}
+	data["response_times"] = responseTimes
+
+	participatedTickets, err := getParticipatedTickets(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get participated tickets: %w", err)
+	}
+	data["participated_tickets"] = participatedTickets
+
+	permissions, err := getPermissions(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get permissions: %w", err)
+	}
+	data["permissions"] = permissions
+
+	teamPermissions, err := getTeamPermissions(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get team permissions: %w", err)
+	}
+	data["team_permissions"] = teamPermissions
+
+	claimedTickets, err := getClaimedTickets(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get claimed tickets: %w", err)
+	}
+	data["claimed_tickets"] = claimedTickets
+
+	ticketsMember, err := getTicketsMember(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tickets member: %w", err)
+	}
+	data["member_of_tickets"] = ticketsMember
+
+	tickets, err := getTickets(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tickets: %w", err)
+	}
+	data["tickets"] = tickets
+
+	premiumActivatedFor, err := getPremiumActivatedFor(db, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get premium activated for: %w", err)
+	}
+	data["premium_activated_for"] = premiumActivatedFor
 
 	guilds, err := db.UserGuilds.Get(ctx, userId)
-	must(err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user guilds: %w", err)
+	}
 	data["guilds"] = guilds
 
 	whitelabel, err := db.Whitelabel.GetByUserId(ctx, userId)
-	must(err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get whitelabel: %w", err)
+	}
 	if whitelabel.UserId == 0 {
 		data["whitelabel"] = nil
 	} else {
@@ -37,63 +89,80 @@ func GetUserData(db *database.Database, userId uint64) map[string]interface{} {
 	}
 
 	whitelabelExpiry, err := db.WhitelabelUsers.GetExpiry(ctx, userId)
-	must(err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get whitelabel expiry: %w", err)
+	}
 	if whitelabelExpiry.IsZero() {
 		data["whitelabel_expiry"] = nil
 	} else {
 		data["whitelabel_expiry"] = whitelabelExpiry
 	}
 
-	return data
+	return data, nil
 }
 
-func getBlacklistedGuilds(db *database.Database, userId uint64) (guilds []uint64) {
+func getBlacklistedGuilds(db *database.Database, userId uint64) ([]uint64, error) {
 	rows, err := db.Blacklist.Query(context.Background(), "SELECT guild_id FROM blacklist WHERE user_id = $1;", userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var guilds []uint64
 	for rows.Next() {
 		var guildId uint64
-		must(rows.Scan(&guildId))
+		if err := rows.Scan(&guildId); err != nil {
+			return nil, err
+		}
 
 		guilds = append(guilds, guildId)
 	}
 
-	return
+	return guilds, nil
 }
 
-func getCloseRequests(db *database.Database, userId uint64) (requests []database.CloseRequest) {
+func getCloseRequests(db *database.Database, userId uint64) ([]database.CloseRequest, error) {
 	query := `
 SELECT "guild_id", "ticket_id", "user_id", "close_at", "close_reason"
 FROM close_request
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var requests []database.CloseRequest
 	for rows.Next() {
 		var request database.CloseRequest
-		must(rows.Scan(&request.GuildId, &request.TicketId, &request.UserId, &request.CloseAt, &request.Reason))
+		if err := rows.Scan(&request.GuildId, &request.TicketId, &request.UserId, &request.CloseAt, &request.Reason); err != nil {
+			return nil, err
+		}
 		requests = append(requests, request)
 	}
 
-	return
+	return requests, nil
 }
 
-func getResponseTimes(db *database.Database, userId uint64) (times []interface{}) {
+func getResponseTimes(db *database.Database, userId uint64) ([]interface{}, error) {
 	query := `
 SELECT "guild_id", "ticket_id", "user_id", "response_time"
 FROM first_response_time
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var times []interface{}
 	for rows.Next() {
 		var guildId, userId uint64
 		var ticketId int
 		var responseTime time.Duration
 
-		must(rows.Scan(&guildId, &ticketId, &userId, &responseTime))
+		if err := rows.Scan(&guildId, &ticketId, &userId, &responseTime); err != nil {
+			return nil, err
+		}
 		times = append(times, map[string]interface{}{
 			"guild_id":      guildId,
 			"ticket_id":     ticketId,
@@ -102,44 +171,53 @@ WHERE "user_id" = $1;`
 		})
 	}
 
-	return
+	return times, nil
 }
 
-func getParticipatedTickets(db *database.Database, userId uint64) (tickets []string) {
+func getParticipatedTickets(db *database.Database, userId uint64) ([]string, error) {
 	query := `
 SELECT "guild_id", "ticket_id"
 FROM participant
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var tickets []string
 	for rows.Next() {
 		var guildId uint64
 		var ticketId int
 
-		must(rows.Scan(&guildId, &ticketId))
+		if err := rows.Scan(&guildId, &ticketId); err != nil {
+			return nil, err
+		}
 		tickets = append(tickets, fmt.Sprintf("%d/%d", guildId, ticketId))
 	}
 
-	return
+	return tickets, nil
 }
 
-func getPermissions(db *database.Database, userId uint64) map[uint64]string {
+func getPermissions(db *database.Database, userId uint64) (map[uint64]string, error) {
 	query := `
 SELECT "guild_id", "support", "admin"
 FROM permissions
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
 	data := make(map[uint64]string)
 	for rows.Next() {
 		var guildId uint64
 		var isSupport, isAdmin bool
 
-		must(rows.Scan(&guildId, &isSupport, &isAdmin))
+		if err := rows.Scan(&guildId, &isSupport, &isAdmin); err != nil {
+			return nil, err
+		}
 
 		if isAdmin {
 			data[guildId] = "admin"
@@ -150,99 +228,124 @@ WHERE "user_id" = $1;`
 		}
 	}
 
-	return data
+	return data, nil
 }
 
-func getTeamPermissions(db *database.Database, userId uint64) (teams []int) {
+func getTeamPermissions(db *database.Database, userId uint64) ([]int, error) {
 	query := `
 SELECT "team_id"
 FROM support_team_members
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var teams []int
 	for rows.Next() {
 		var teamId int
-		must(rows.Scan(&teamId))
+		if err := rows.Scan(&teamId); err != nil {
+			return nil, err
+		}
 		teams = append(teams, teamId)
 	}
 
-	return
+	return teams, nil
 }
 
-func getClaimedTickets(db *database.Database, userId uint64) (tickets []string) {
+func getClaimedTickets(db *database.Database, userId uint64) ([]string, error) {
 	query := `
 SELECT "guild_id", "ticket_id"
 FROM ticket_claims
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var tickets []string
 	for rows.Next() {
 		var guildId uint64
 		var ticketId int
 
-		must(rows.Scan(&guildId, &ticketId))
+		if err := rows.Scan(&guildId, &ticketId); err != nil {
+			return nil, err
+		}
 		tickets = append(tickets, fmt.Sprintf("%d/%d", guildId, ticketId))
 	}
 
-	return
+	return tickets, nil
 }
 
-func getTicketsMember(db *database.Database, userId uint64) (tickets []string) {
+func getTicketsMember(db *database.Database, userId uint64) ([]string, error) {
 	query := `
 SELECT "guild_id", "ticket_id"
 FROM ticket_members
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var tickets []string
 	for rows.Next() {
 		var guildId uint64
 		var ticketId int
 
-		must(rows.Scan(&guildId, &ticketId))
+		if err := rows.Scan(&guildId, &ticketId); err != nil {
+			return nil, err
+		}
 		tickets = append(tickets, fmt.Sprintf("%d/%d", guildId, ticketId))
 	}
 
-	return
+	return tickets, nil
 }
 
-func getTickets(db *database.Database, userId uint64) (tickets []database.Ticket) {
+func getTickets(db *database.Database, userId uint64) ([]database.Ticket, error) {
 	query := `
 SELECT id, guild_id, channel_id, user_id, open, open_time, welcome_message_id, panel_id, has_transcript
 FROM tickets
 WHERE "user_id" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var tickets []database.Ticket
 	for rows.Next() {
 		var ticket database.Ticket
-		must(rows.Scan(&ticket.Id, &ticket.GuildId, &ticket.ChannelId, &ticket.UserId, &ticket.Open, &ticket.OpenTime, &ticket.WelcomeMessageId, &ticket.PanelId, &ticket.HasTranscript))
+		if err := rows.Scan(&ticket.Id, &ticket.GuildId, &ticket.ChannelId, &ticket.UserId, &ticket.Open, &ticket.OpenTime, &ticket.WelcomeMessageId, &ticket.PanelId, &ticket.HasTranscript); err != nil {
+			return nil, err
+		}
 		tickets = append(tickets, ticket)
 	}
 
-	return
+	return tickets, nil
 }
 
-func getPremiumActivatedFor(db *database.Database, userId uint64) (guilds []uint64) {
+func getPremiumActivatedFor(db *database.Database, userId uint64) ([]uint64, error) {
 	query := `
 SELECT guild_id
 FROM used_keys
 WHERE "activated_by" = $1;`
 
 	rows, err := db.Blacklist.Query(context.Background(), query, userId)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 
+	var guilds []uint64
 	for rows.Next() {
 		var guildId uint64
-		must(rows.Scan(&guildId))
+		if err := rows.Scan(&guildId); err != nil {
+			return nil, err
+		}
 		guilds = append(guilds, guildId)
 	}
 
-	return
+	return guilds, nil
 }

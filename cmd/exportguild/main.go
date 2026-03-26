@@ -7,9 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/TicketsBot-cloud/common/encryption"
 	"github.com/TicketsBot-cloud/gdl/objects/channel/message"
@@ -19,6 +18,7 @@ import (
 	v1 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v1"
 	v2 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v2"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/s3client"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"golang.org/x/sync/errgroup"
@@ -29,15 +29,22 @@ const workers = 15
 var (
 	guildId       = flag.Uint64("guildid", 0, "guild id to export")
 	key           = flag.String("key", "", "aes key")
+	dbUri         = flag.String("dburi", "", "database uri")
 	ticketId      = flag.Int("ticketid", 0, "set to export a single ticket")
 	convert       = flag.Bool("convert", false, "convert to v2 if necessary")
 	userWhitelist = flag.Uint64("userwhitelist", 0, "only export tickets from this user")
 	after         = flag.Int("after", 0, "export ticket IDs above this value (inclusive)")
+	dateFromStr   = flag.String("date-from", "", "only export tickets created from this date (YYYY-MM-DD, inclusive)")
+	dateToStr     = flag.String("date-to", "", "only export tickets created up to this date (YYYY-MM-DD, inclusive)")
 )
 
 func main() {
 	flag.Parse()
 	conf := config.Parse[config.CliConfig]()
+
+	if *dbUri == "" {
+		panic("-dburi is required")
+	}
 
 	fmt.Printf("Exporting guild data for %d\n", *guildId)
 
@@ -63,50 +70,32 @@ func main() {
 		exportTicket(*ticketId, client, exportDir)
 		printProgress(1, 1, 0, 0)
 	} else {
-		keys, err := client.GetAllKeysForGuild(context.Background(), *guildId)
-		if err != nil {
-			panic(err)
-		}
+		ticketIds := getTicketIds(*guildId, *dateFromStr, *dateToStr)
+		fmt.Printf("  Found %d tickets\n", len(ticketIds))
 
-		total := int64(len(keys))
+		total := int64(len(ticketIds))
 		var processed, skipped, failed atomic.Int64
 
-		keyCh := make(chan string)
+		idCh := make(chan int)
 		go func() {
-			for _, key := range keys {
-				keyCh <- key
+			for _, id := range ticketIds {
+				idCh <- id
 			}
-			close(keyCh)
+			close(idCh)
 		}()
 
 		group, _ := errgroup.WithContext(context.Background())
 		for i := 0; i < workers; i++ {
 			group.Go(func() error {
-				for key := range keyCh {
-					id := key[strings.LastIndex(key, "/")+1:]
-					if id == "" {
+				for id := range idCh {
+					if after != nil && *after > 0 && id < *after {
 						skipped.Add(1)
 						processed.Add(1)
 						printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
 						continue
 					}
 
-					parsed, err := strconv.Atoi(id)
-					if err != nil {
-						skipped.Add(1)
-						processed.Add(1)
-						printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
-						continue
-					}
-
-					if after != nil && *after > 0 && parsed < *after {
-						skipped.Add(1)
-						processed.Add(1)
-						printProgress(int(processed.Load()), int(total), int(skipped.Load()), int(failed.Load()))
-						continue
-					}
-
-					if ok := exportTicket(parsed, client, exportDir); !ok {
+					if result := exportTicket(id, client, exportDir); result < 0 {
 						failed.Add(1)
 					}
 
@@ -133,6 +122,58 @@ func main() {
 	fmt.Printf("Done! Export saved to %s\n", zipPath)
 }
 
+func getTicketIds(guildId uint64, fromStr, toStr string) []int {
+	pool, err := pgxpool.Connect(context.Background(), *dbUri)
+	if err != nil {
+		panic(fmt.Sprintf("failed to connect to database: %v", err))
+	}
+	defer pool.Close()
+
+	query := `SELECT id FROM tickets WHERE guild_id = $1 AND has_transcript = 't' AND open = 'f'`
+	args := []interface{}{guildId}
+	argIdx := 2
+
+	if fromStr != "" {
+		dateFrom, err := time.Parse("2006-01-02", fromStr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid -date-from: %v", err))
+		}
+		query += fmt.Sprintf(` AND open_time >= $%d`, argIdx)
+		args = append(args, dateFrom)
+		argIdx++
+	}
+
+	if toStr != "" {
+		dateTo, err := time.Parse("2006-01-02", toStr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid -date-to: %v", err))
+		}
+		// End of day so the date is inclusive
+		dateTo = dateTo.Add(24*time.Hour - time.Nanosecond)
+		query += fmt.Sprintf(` AND open_time <= $%d`, argIdx)
+		args = append(args, dateTo)
+	}
+
+	query += ` ORDER BY id;`
+
+	rows, err := pool.Query(context.Background(), query, args...)
+	if err != nil {
+		panic(fmt.Sprintf("failed to query tickets: %v", err))
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			panic(fmt.Sprintf("failed to scan ticket id: %v", err))
+		}
+		ids = append(ids, id)
+	}
+
+	return ids
+}
+
 func printProgress(current, total, skipped, failed int) {
 	const barWidth = 40
 	filled := barWidth * current / total
@@ -150,16 +191,16 @@ func printProgress(current, total, skipped, failed int) {
 	}
 }
 
-// exportTicket exports a single ticket and returns true on success.
-func exportTicket(id int, client *s3client.S3Client, exportDir string) bool {
+// exportTicket exports a single ticket. Returns 1 for success, -1 for failure.
+func exportTicket(id int, client *s3client.S3Client, exportDir string) int {
 	data, err := client.GetTicket(context.Background(), *guildId, id)
 	if err != nil {
-		return false
+		return -1
 	}
 
 	data, err = encryption.Decrypt([]byte(*key), data)
 	if err != nil {
-		return false
+		return -1
 	}
 
 	if *convert || (userWhitelist != nil && *userWhitelist > 0) {
@@ -170,16 +211,16 @@ func exportTicket(id int, client *s3client.S3Client, exportDir string) bool {
 		case model.V1:
 			var messages []message.Message
 			if err := json.Unmarshal(data, &messages); err != nil {
-				return false
+				return -1
 			}
 
 			transcript = v1.ConvertToV2(messages)
 		case model.V2:
 			if err := json.Unmarshal(data, &transcript); err != nil {
-				return false
+				return -1
 			}
 		default:
-			return false
+			return -1
 		}
 
 		if userWhitelist != nil && *userWhitelist > 0 {
@@ -207,25 +248,25 @@ func exportTicket(id int, client *s3client.S3Client, exportDir string) bool {
 
 		data, err = json.Marshal(transcript)
 		if err != nil {
-			return false
+			return -1
 		}
 	}
 
 	var encoded bytes.Buffer
 	if err := json.Indent(&encoded, data, "", "  "); err != nil {
-		return false
+		return -1
 	}
 
 	f, err := os.Create(fmt.Sprintf("%s/%d.json", exportDir, id))
 	if err != nil {
-		return false
+		return -1
 	}
 
 	if _, err := encoded.WriteTo(f); err != nil {
-		return false
+		return -1
 	}
 
-	return true
+	return 1
 }
 
 func must(err error) {

@@ -84,13 +84,15 @@ func (c *S3Client) DeleteTicket(ctx context.Context, guildId uint64, ticketId in
 func (c *S3Client) GetAllKeysForGuild(ctx context.Context, guildId uint64) ([]string, error) {
 	prefix := fmt.Sprintf("%d/", guildId)
 	opts := minio.ListObjectsOptions{
-		WithMetadata: true,
-		Prefix:       prefix,
-		Recursive:    true,
+		Prefix:    prefix,
+		Recursive: true,
 	}
 
 	keys := make([]string, 0)
 	for obj := range c.client.ListObjects(ctx, c.bucketName, opts) {
+		if obj.Err != nil {
+			return nil, obj.Err
+		}
 		keys = append(keys, obj.Key)
 	}
 
