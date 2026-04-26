@@ -18,6 +18,7 @@ require (
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/joho/godotenv v1.5.1
+	github.com/klauspost/compress v1.17.9
 	github.com/minio/minio-go/v7 v7.0.73
 	go.uber.org/zap v1.23.0
 	golang.org/x/sync v0.8.0
@@ -44,7 +45,6 @@ require (
 	github.com/jackc/puddle v1.3.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
 	github.com/leodido/go-urn v1.2.1 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
