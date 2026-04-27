@@ -7,18 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 
-	"github.com/TicketsBot-cloud/gdl/objects/channel/message"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/config"
-	"github.com/TicketsBot-cloud/logarchiver/pkg/model"
-	v1 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v1"
 	v22 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v2"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/s3client"
+	"github.com/TicketsBot-cloud/logarchiver/pkg/utils"
 	"github.com/TicketsBot/common/encryption"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -37,16 +31,10 @@ func main() {
 	flag.Parse()
 	conf := config.Parse[config.CliConfig]()
 
-	// create minio client
-	m, err := minio.New(conf.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(conf.AccessKey, conf.SecretKey, ""),
-		Secure: conf.Secure,
-	})
+	client, err := s3client.NewFromCliConfig(conf)
 	if err != nil {
 		panic(err)
 	}
-
-	client := s3client.NewS3Client(m, conf.Bucket)
 
 	// likely to be file exists
 	_ = os.Mkdir(fmt.Sprintf("export/%d", *guildId), 0)
@@ -69,11 +57,10 @@ func main() {
 		}()
 
 		group, _ := errgroup.WithContext(context.Background())
-		for i := 0; i < workers; i++ {
+		for range workers {
 			group.Go(func() error {
 				for key := range keyCh {
-					id := key[strings.LastIndex(key, "/")+1:]
-					parsed, err := strconv.Atoi(id)
+					parsed, err := s3client.TicketIDFromKey(key)
 					must(err)
 
 					if after != nil && *after > 0 && parsed < *after {
@@ -104,24 +91,8 @@ func export(id int, client *s3client.S3Client) {
 	must(err)
 
 	if *convert || (userWhitelist != nil && *userWhitelist > 0) {
-		var transcript v22.Transcript
-
-		version := model.GetVersion(data)
-		switch version {
-		case model.V1:
-			var messages []message.Message
-			if err := json.Unmarshal(data, &messages); err != nil {
-				panic(err)
-			}
-
-			transcript = v1.ConvertToV2(messages)
-		case model.V2:
-			if err := json.Unmarshal(data, &transcript); err != nil {
-				panic(err)
-			}
-		default:
-			panic(fmt.Sprintf("Unknown version %d", version))
-		}
+		transcript, err := utils.Decode(data)
+		must(err)
 
 		data, err = json.Marshal(transcript)
 		must(err)

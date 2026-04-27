@@ -1,7 +1,5 @@
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/Masterminds/semver/v3 v3.1.1/go.mod h1:VPu/7SZ7ePZ3QOrcuXROw5FAcLl4a0cBrbBpGY/8hQs=
-github.com/TicketsBot-cloud/gdl v0.0.0-20250509054940-2045fbe19c06 h1:PzziB2S58d9agJtpaPVrYMTuBiJICr2QIGQoqL6l3z0=
-github.com/TicketsBot-cloud/gdl v0.0.0-20250509054940-2045fbe19c06/go.mod h1:CdwBR2egPtxUXjD2CgC9ZwfuB8dz9HPePM8nuG6dt7Y=
 github.com/TicketsBot/common v0.0.0-20230723121853-8d873b27086e h1:K7c0kRXxaW14dl9G9rQ78eGP+Lu+F7qPxTud/j68SQQ=
 github.com/TicketsBot/common v0.0.0-20230723121853-8d873b27086e/go.mod h1:rZuaTbjajlxscl628aBgUGiUZcOVLvF6pfsPL+2JOac=
 github.com/TicketsBot/database v0.0.0-20220217133004-d190910ad66f h1:kBIHaAxyIGqxgwz/ZRggNGjyIdZ3ctWZqjJ9Svrn4L4=

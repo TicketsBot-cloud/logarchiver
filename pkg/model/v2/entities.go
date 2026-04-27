@@ -47,9 +47,13 @@ func UserFromGdl(entity user.User) User {
 }
 
 func ChannelFromGdl(entity channel.Channel) Channel {
+	name := ""
+	if entity.Name != nil {
+		name = *entity.Name
+	}
 	return Channel{
 		Id:   entity.Id,
-		Name: entity.Name,
+		Name: name,
 		Type: entity.Type,
 	}
 }

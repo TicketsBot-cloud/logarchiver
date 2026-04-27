@@ -10,15 +10,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TicketsBot-cloud/gdl/objects/channel/message"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/config"
-	"github.com/TicketsBot-cloud/logarchiver/pkg/model"
-	v1 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v1"
 	v2 "github.com/TicketsBot-cloud/logarchiver/pkg/model/v2"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/s3client"
+	"github.com/TicketsBot-cloud/logarchiver/pkg/utils"
 	"github.com/TicketsBot/common/encryption"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 var (
@@ -39,16 +35,10 @@ func main() {
 		panic("either -ticket, -all or -csv must be set")
 	}
 
-	client, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.Secure,
-	})
-
+	s3Client, err := s3client.NewFromCliConfig(cfg)
 	if err != nil {
 		panic(err)
 	}
-
-	s3Client := s3client.NewS3Client(client, cfg.Bucket)
 
 	var count int
 	if *csv != "" {
@@ -77,7 +67,7 @@ func main() {
 		}
 
 		for _, key := range keys {
-			ticketId, err := strconv.Atoi(key[strings.LastIndex(key, "/")+1:])
+			ticketId, err := s3client.TicketIDFromKey(key)
 			if err != nil {
 				fmt.Printf("error occurred while parsing id of %s: %v\n", key, err)
 				continue
@@ -130,23 +120,9 @@ func clean(client *s3client.S3Client, guildId uint64, ticketId int) (int, error)
 		panic(err)
 	}
 
-	var transcript v2.Transcript
-
-	version := model.GetVersion(data)
-	switch version {
-	case model.V1:
-		var messages []message.Message
-		if err := json.Unmarshal(data, &messages); err != nil {
-			panic(err)
-		}
-
-		transcript = v1.ConvertToV2(messages)
-	case model.V2:
-		if err := json.Unmarshal(data, &transcript); err != nil {
-			panic(err)
-		}
-	default:
-		panic(fmt.Sprintf("Unknown version %d", version))
+	transcript, err := utils.Decode(data)
+	if err != nil {
+		return 0, err
 	}
 
 	transcript.Entities.Users[*userId] = v2.User{
@@ -204,9 +180,10 @@ func parseCsv(file string) map[uint64][]int {
 	ticketIdIdx := -1
 
 	for i, h := range header {
-		if h == "guild_id" {
+		switch h {
+		case "guild_id":
 			guildIdIdx = i
-		} else if h == "ticket_id" || h == "id" {
+		case "ticket_id", "id":
 			ticketIdIdx = i
 		}
 	}

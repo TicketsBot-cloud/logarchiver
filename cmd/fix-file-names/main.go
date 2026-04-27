@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,8 +15,7 @@ import (
 const workers = 30
 
 func main() {
-	flag.Parse()
-	conf := config.Parse()
+	conf := config.Parse[config.CliConfig]()
 
 	// create minio client
 	client, err := minio.New(conf.Endpoint, &minio.Options{

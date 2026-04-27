@@ -9,8 +9,6 @@ import (
 
 	"github.com/TicketsBot-cloud/logarchiver/pkg/config"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/s3client"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -29,16 +27,10 @@ func main() {
 		panic("guild id must be set")
 	}
 
-	m, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.Secure,
-	})
-
+	client, err := s3client.NewFromCliConfig(cfg)
 	if err != nil {
 		panic(err)
 	}
-
-	client := s3client.NewS3Client(m, cfg.Bucket)
 
 	if *all {
 		keys, err := client.GetAllKeysForGuild(context.Background(), *guildId)
@@ -47,7 +39,7 @@ func main() {
 		}
 
 		for _, key := range keys {
-			ticketId, err := strconv.Atoi(key[strings.LastIndex(key, "/")+1:])
+			ticketId, err := s3client.TicketIDFromKey(key)
 			if err != nil {
 				fmt.Printf("error occurred while parsing id of %s: %v\n", key, err)
 				continue
