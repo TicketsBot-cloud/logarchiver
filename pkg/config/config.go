@@ -23,7 +23,7 @@ type Config struct {
 
 func Parse[T any]() (conf T) {
 	parsers := env.CustomParsers{
-		reflect.TypeOf(uuid.UUID{}): func(value string) (interface{}, error) {
+		reflect.TypeFor[uuid.UUID](): func(value string) (any, error) {
 			return uuid.Parse(value)
 		},
 	}

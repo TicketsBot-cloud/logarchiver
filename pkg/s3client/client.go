@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 
+	"github.com/TicketsBot-cloud/logarchiver/pkg/config"
 	"github.com/TicketsBot-cloud/logarchiver/pkg/repository/model"
 	"github.com/klauspost/compress/zstd"
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 type S3Client struct {
@@ -23,6 +27,18 @@ func NewS3Client(client *minio.Client, bucketName string) *S3Client {
 		client:     client,
 		bucketName: bucketName,
 	}
+}
+
+func NewFromCliConfig(cfg config.CliConfig) (*S3Client, error) {
+	m, err := minio.New(cfg.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure: cfg.Secure,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return NewS3Client(m, cfg.Bucket), nil
 }
 
 func (c *S3Client) GetTicket(ctx context.Context, guildId uint64, ticketId int) ([]byte, error) {
@@ -107,6 +123,11 @@ func (c *S3Client) Minio() *minio.Client {
 // bucket are migrated into the database.
 func (c *S3Client) BucketName() string {
 	return c.bucketName
+}
+
+// TicketIDFromKey extracts the ticket ID from an S3 object key of the form "guildId/ticketId".
+func TicketIDFromKey(key string) (int, error) {
+	return strconv.Atoi(key[strings.LastIndex(key, "/")+1:])
 }
 
 func isNotFoundErr(err error) bool {
