@@ -7,7 +7,7 @@ go 1.25.0
 require (
 	github.com/TicketsBot-cloud/common v0.0.0-20260210203202-54154661338e
 	github.com/TicketsBot-cloud/database v0.0.0-20260308193919-30a698fefa8b
-	github.com/TicketsBot-cloud/gdl v0.0.0-20260306134952-cccb0116fef6
+	github.com/TicketsBot-cloud/gdl v0.0.0-20260612070331-a3947b410d3e
 	github.com/TicketsBot/common v0.0.0-20241117150316-ff54c97b45c1
 	github.com/caarlos0/env v3.5.0+incompatible
 	github.com/getsentry/sentry-go v0.21.0
