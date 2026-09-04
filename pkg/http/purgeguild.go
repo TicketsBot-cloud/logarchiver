@@ -57,6 +57,7 @@ func (s *Server) purgeGuildHandler(ctx *gin.Context) {
 			return
 		}); err != nil {
 			s.Logger.Error("Failed to fetch objects from database", zap.Error(err), zap.Uint64("guild", guildId))
+			s.RemoveQueue.AddError(guildId, "database:list", err)
 			firstErr = err
 		} else {
 			for _, obj := range dbObjects {
@@ -71,6 +72,7 @@ func (s *Server) purgeGuildHandler(ctx *gin.Context) {
 			bucketId, err := uuid.Parse(bucketIdStr)
 			if err != nil {
 				s.Logger.Error("Failed to parse bucket ID", zap.Error(err), zap.String("bucket_id", bucketIdStr), zap.Uint64("guild", guildId))
+				s.RemoveQueue.AddError(guildId, "bucket:"+bucketIdStr, err)
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -80,6 +82,7 @@ func (s *Server) purgeGuildHandler(ctx *gin.Context) {
 			client, err := s.s3Clients.Get(bucketId)
 			if err != nil {
 				s.Logger.Error("Failed to get S3 client", zap.Error(err), zap.String("bucket_id", bucketIdStr), zap.Uint64("guild", guildId))
+				s.RemoveQueue.AddError(guildId, "bucket:"+bucketIdStr, err)
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -98,16 +101,24 @@ func (s *Server) purgeGuildHandler(ctx *gin.Context) {
 			objectsCh := make(chan minio.ObjectInfo)
 
 			bucketObjectCount := 0
+			listErrCh := make(chan error, 1)
 			go func() {
 				defer close(objectsCh)
+
+				var listErr error
 				for obj := range objectCh {
 					if obj.Err != nil {
-						s.Logger.Warn("Error listing object (non-fatal)", zap.Error(obj.Err), zap.Uint64("guild", guildId))
+						s.Logger.Error("Failed to list object", zap.Error(obj.Err), zap.String("bucket_id", bucketIdStr), zap.Uint64("guild", guildId))
+						if listErr == nil {
+							listErr = obj.Err
+						}
 						continue
 					}
 					bucketObjectCount++
 					objectsCh <- obj
 				}
+
+				listErrCh <- listErr
 				s.Logger.Debug("Finished listing objects", zap.Int("count", bucketObjectCount), zap.Uint64("guild", guildId))
 			}()
 
@@ -116,6 +127,7 @@ func (s *Server) purgeGuildHandler(ctx *gin.Context) {
 			for result := range client.Minio().RemoveObjects(context.Background(), client.BucketName(), objectsCh, minio.RemoveObjectsOptions{}) {
 				if result.Err != nil {
 					s.Logger.Error("Failed to remove object", zap.Error(result.Err), zap.String("object", result.ObjectName), zap.Uint64("guild", guildId))
+					s.RemoveQueue.AddError(guildId, result.ObjectName, result.Err)
 					if firstErr == nil {
 						firstErr = result.Err
 					}
@@ -125,17 +137,32 @@ func (s *Server) purgeGuildHandler(ctx *gin.Context) {
 				}
 			}
 
+			// Reading this also joins the lister.
+			if listErr := <-listErrCh; listErr != nil {
+				s.RemoveQueue.AddError(guildId, "bucket:"+bucketIdStr, listErr)
+				if firstErr == nil {
+					firstErr = listErr
+				}
+			}
+
+			s.RemoveQueue.AddRemovedObject(guildId, fmt.Sprintf("%s (%d objects)", bucketIdStr, bucketObjectCount))
+
 			s.Logger.Debug("Finished deleting from bucket", zap.Int("deleted", bucketDeletedCount), zap.String("bucket_id", bucketIdStr), zap.Uint64("guild", guildId))
 		}
 
-		// Delete database records
-		if err := s.store.Tx(context.Background(), func(r repository.Repositories) error {
-			return r.Objects().DeleteByGuild(context.Background(), guildId)
-		}); err != nil {
-			s.Logger.Error("Failed to delete objects from database", zap.Error(err), zap.Uint64("guild", guildId))
-			if firstErr == nil {
+		if firstErr == nil {
+			if err := s.store.Tx(context.Background(), func(r repository.Repositories) error {
+				return r.Objects().DeleteByGuild(context.Background(), guildId)
+			}); err != nil {
+				s.Logger.Error("Failed to delete objects from database", zap.Error(err), zap.Uint64("guild", guildId))
+				s.RemoveQueue.AddError(guildId, "database:delete", err)
 				firstErr = err
 			}
+		} else {
+			s.Logger.Warn(
+				"Keeping object records because the S3 purge failed; deleting them would strand the transcripts",
+				zap.Uint64("guild", guildId),
+			)
 		}
 
 		if firstErr != nil {
