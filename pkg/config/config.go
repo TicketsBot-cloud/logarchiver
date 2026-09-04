@@ -1,9 +1,10 @@
 package config
 
 import (
+	"reflect"
+
 	"github.com/caarlos0/env"
 	"github.com/google/uuid"
-	"reflect"
 )
 
 type Config struct {

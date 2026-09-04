@@ -1,7 +1,6 @@
 .idea
 *.iml
 .env
-export/
-export_user/
+exports/
 /new
 /done.json
