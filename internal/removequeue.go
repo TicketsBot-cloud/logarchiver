@@ -16,11 +16,11 @@ type (
 	}
 
 	RemoveOperation struct {
-		Status      Status                   `json:"status"`
-		Removed     *collections.Set[string] `json:"removed"` // Object names
-		Failed      *collections.Set[string] `json:"failed"`  // Object names
-		Errors      map[string]error         `json:"errors"`
-		LastUpdated time.Time                `json:"-"`
+		Status  Status                   `json:"status"`
+		Removed *collections.Set[string] `json:"removed"` // Object names
+		Failed  *collections.Set[string] `json:"failed"`  // Object names
+		Errors      map[string]string `json:"errors"`
+		LastUpdated time.Time         `json:"-"`
 	}
 
 	Status string
@@ -57,7 +57,7 @@ func (q *RemoveQueue) StartOperation(guildId uint64) error {
 		Status:      StatusInProgress,
 		Removed:     collections.NewSet[string](),
 		Failed:      collections.NewSet[string](),
-		Errors:      make(map[string]error),
+		Errors:      make(map[string]string),
 		LastUpdated: time.Now(),
 	}
 
@@ -113,7 +113,7 @@ func (q *RemoveQueue) AddError(guildId uint64, objectName string, err error) {
 	defer q.mu.Unlock()
 
 	if operation, ok := q.queue[guildId]; ok {
-		operation.Errors[objectName] = err
+		operation.Errors[objectName] = err.Error()
 		operation.Failed.Add(objectName)
 		operation.Removed.Remove(objectName)
 		operation.LastUpdated = time.Now()
@@ -168,16 +168,16 @@ func (o RemoveOperation) clone() RemoveOperation {
 		failed.Add(el)
 	}
 
-	errors := make(map[string]error)
+	errs := make(map[string]string, len(o.Errors))
 	for k, v := range o.Errors {
-		errors[k] = v
+		errs[k] = v
 	}
 
 	return RemoveOperation{
 		Status:      o.Status,
 		Removed:     removed,
 		Failed:      failed,
-		Errors:      errors,
+		Errors:      errs,
 		LastUpdated: o.LastUpdated,
 	}
 }
