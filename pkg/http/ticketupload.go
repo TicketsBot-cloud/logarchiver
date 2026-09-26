@@ -60,6 +60,9 @@ func (s *Server) ticketUploadHandler(ctx *gin.Context) {
 		return nil
 	}); err != nil {
 		s.Logger.Error("Failed to check whether object already exists", zap.Error(err))
+		ctx.JSON(500, gin.H{
+			"message": err.Error(),
+		})
 		return
 	}
 
