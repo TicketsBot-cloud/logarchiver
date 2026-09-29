@@ -39,8 +39,13 @@ func (c *S3Client) GetTicket(ctx context.Context, guildId uint64, ticketId int) 
 
 	defer object.Close()
 
+	// GetObject is lazy, so a missing key only surfaces on the first read
 	var buff bytes.Buffer
 	if _, err := buff.ReadFrom(object); err != nil {
+		if isNotFoundErr(err) {
+			return nil, ErrTicketNotFound
+		}
+
 		return nil, err
 	}
 
