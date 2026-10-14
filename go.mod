@@ -2,7 +2,7 @@ module github.com/TicketsBot-cloud/logarchiver
 
 go 1.25.0
 
-// replace github.com/TicketsBot-cloud/gdl => ../gdl
+replace github.com/TicketsBot-cloud/gdl => ../gdl
 
 require (
 	github.com/TicketsBot-cloud/common v0.0.0-20260210203202-54154661338e
