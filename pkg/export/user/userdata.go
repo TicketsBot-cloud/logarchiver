@@ -85,7 +85,7 @@ func GetUserData(db *database.Database, userId uint64) (map[string]interface{}, 
 	if whitelabel.UserId == 0 {
 		data["whitelabel"] = nil
 	} else {
-		data["whitelabel"] = whitelabel
+		data["whitelabel"] = newWhitelabelExport(whitelabel)
 	}
 
 	whitelabelExpiry, err := db.WhitelabelUsers.GetExpiry(ctx, userId)
@@ -348,4 +348,17 @@ WHERE "activated_by" = $1;`
 	}
 
 	return guilds, nil
+}
+
+// whitelabelExport is an allowlist of the whitelabel fields a user may receive.
+// Credentials are deliberately absent, so a field added to the table later
+// cannot leak into a data export by default.
+type whitelabelExport struct {
+	UserId    uint64
+	BotId     uint64
+	PublicKey string
+}
+
+func newWhitelabelExport(bot database.WhitelabelBot) whitelabelExport {
+	return whitelabelExport{UserId: bot.UserId, BotId: bot.BotId, PublicKey: bot.PublicKey}
 }
